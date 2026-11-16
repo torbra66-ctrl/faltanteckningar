@@ -48,6 +48,18 @@ main{padding:8px 16px calc(var(--sb) + 110px);max-width:720px;margin:0 auto}
 .note{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:10px;display:flex;gap:12px;width:100%;text-align:left}
 .note .body{flex:1;min-width:0}
 .note time{font-size:13px;font-weight:600;color:var(--accent)}
+.note .meta{display:flex;align-items:center;gap:6px}
+.note .mood{font-size:15px;line-height:1}
+.note h3{margin:2px 0 0;font-size:15.5px;font-weight:600;word-break:break-word}
+.note .preview{margin:2px 0 6px;color:var(--ink);white-space:normal;word-break:break-word}
+.moodpick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.moodpick button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 6px;border-radius:12px;background:var(--card);border:1.5px solid var(--line);font-size:13px;font-weight:500;color:var(--muted)}
+.moodpick button .e{font-size:28px;line-height:1.1;filter:grayscale(1);opacity:.55;transition:all .15s}
+.moodpick button.on{border-color:var(--accent);color:var(--ink);background:color-mix(in srgb,var(--accent) 10%,var(--card))}
+.moodpick button.on .e{filter:none;opacity:1;transform:scale(1.08)}
+.dtitle{font:600 22px/1.2 Fraunces,Georgia,serif;margin-bottom:4px;word-break:break-word}
+.dmood{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);margin-bottom:12px}
+.dmood span{font-size:20px}
 .note p{margin:3px 0 6px;white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .note .tags{display:flex;flex-wrap:wrap;gap:4px}
 .note .tags .chip{padding:2px 8px;font-size:11.5px}
@@ -308,6 +320,10 @@ function fmtDay(ts) {
 const fmtFull = ts => new Date(ts).toLocaleString("sv-SE", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const toLocalInput = ts => { const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 19); };
 const tagById = id => tags.find(t => t.id === id);
+const MOODS = { sad: { e: "😞", label: "Ledsen" }, neutral: { e: "😐", label: "Neutral" }, happy: { e: "😊", label: "Glad" } };
+const moodOf = n => MOODS[n.mood] ? n.mood : "neutral";
+const PREVIEW_CHARS = 45;
+const preview = t => { const c = [...String(t || "").replace(/\s+/g, " ").trim()]; return c.length > PREVIEW_CHARS ? c.slice(0, PREVIEW_CHARS).join("").trimEnd() + "…" : c.join(""); };
 
 /* ---------------- location helpers ---------------- */
 const PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
@@ -427,7 +443,7 @@ function visibleNotes() {
   return notes.filter(n => {
     if (filterTags.size && ![...filterTags].every(id => (n.tags || []).includes(id))) return false;
     if (query) {
-      const hay = (n.text || "") + " " + (n.location?.address || "") + " " + (n.location?.name || "") + " " + (n.tags || []).map(id => tagById(id)?.name || "").join(" ");
+      const hay = (n.title || "") + " " + (n.text || "") + " " + (n.location?.address || "") + " " + (n.location?.name || "") + " " + (n.tags || []).map(id => tagById(id)?.name || "").join(" ");
       if (!hay.toLowerCase().includes(query)) return false;
     }
     return true;
@@ -448,8 +464,9 @@ async function renderList() {
     const m = (n.media || [])[0]; const extra = (n.media || []).length;
     const tagHtml = (n.tags || []).map(tagById).filter(Boolean).map(t => `<span class="chip"><span class="dot" style="background:${esc(t.color)}"></span>${esc(t.name)}</span>`).join("");
     html += `<button class="note" data-id="${esc(n.id)}">
-      <div class="body"><time>${fmtTime(n.ts)}</time>
-        ${n.text ? `<p>${esc(n.text)}</p>` : `<p style="color:var(--muted)">${extra ? "Media utan text" : "Tom notering"}</p>`}
+      <div class="body"><div class="meta"><time>${fmtTime(n.ts)}</time><span class="mood" title="${MOODS[moodOf(n)].label}">${MOODS[moodOf(n)].e}</span></div>
+        ${n.title ? `<h3>${esc(n.title)}</h3>` : ""}
+        ${n.text ? `<p class="preview">${esc(preview(n.text))}</p>` : (n.title ? "" : `<p class="preview" style="color:var(--muted)">${extra ? "Media utan text" : "Tom notering"}</p>`)}
         ${locLabel(n.location) ? `<div class="loc">${PIN}${esc(locLabel(n.location))}</div>` : ""}
         ${tagHtml ? `<div class="tags">${tagHtml}</div>` : ""}</div>
       ${m ? `<div class="thumb" data-thumb="${esc(n.id)}">${extra > 1 ? `<span class="badge">${extra}</span>` : m.kind === "video" ? `<span class="badge">▶</span>` : ""}</div>` : ""}
@@ -538,12 +555,17 @@ function openEditor(existing) {
   let media = (n.media || []).map(m => ({ ...m }));
   const removed = [];
   const selTags = new Set(n.tags || []);
+  let mood = moodOf(n);
 
   const bg = openSheet(`
     <div class="sheet-head"><h2>${isNew ? "Ny notering" : "Redigera notering"}</h2><button class="iconbtn" data-close aria-label="Stäng">${X_ICON}</button></div>
     <div class="sheet-body">
       <label class="lbl">Datum och klockslag</label>
       <input type="datetime-local" step="1" class="field" id="eTs" value="${toLocalInput(n.ts)}">
+      <label class="lbl">Namn</label>
+      <input class="field" id="eTitle" maxlength="80" placeholder="Ge noteringen ett namn (valfritt)" value="${esc(n.title || "")}">
+      <label class="lbl">Humör</label>
+      <div class="moodpick" id="eMood">${Object.entries(MOODS).map(([k, m]) => `<button type="button" data-mood="${k}" class="${moodOf(n) === k ? "on" : ""}" aria-pressed="${moodOf(n) === k}"><span class="e">${m.e}</span>${m.label}</button>`).join("")}</div>
       <label class="lbl">Notering</label>
       <textarea class="field" id="eText" placeholder="Vad ser du, tänker du, händer?">${esc(n.text)}</textarea>
       <label class="lbl">Bild och film</label>
@@ -704,6 +726,8 @@ function openEditor(existing) {
     }
     const rm = t.closest("[data-rm]");
     if (rm) { const [m] = media.splice(+rm.dataset.rm, 1); if (m && !m.blob) removed.push(m); drawMedia(); return; }
+    const md = t.closest("[data-mood]");
+    if (md) { mood = md.dataset.mood; bg.querySelectorAll("[data-mood]").forEach(b => { const on = b.dataset.mood === mood; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }); return; }
     const tg = t.closest("[data-t]");
     if (tg) { const id = tg.dataset.t; selTags.has(id) ? selTags.delete(id) : selTags.add(id); drawTags(); return; }
     if (t.closest("[data-managetags]")) { openTagManager(() => drawTags()); return; }
@@ -721,7 +745,7 @@ function openEditor(existing) {
     const save = t.closest("[data-save]");
     if (save) {
       const text = $("#eText", bg).value.trim();
-      if (!text && !media.length && !selTags.size) { toast("Skriv något eller lägg till bild/film."); return; }
+      if (!text && !$("#eTitle", bg).value.trim() && !media.length && !selTags.size) { toast("Skriv något eller lägg till bild/film."); return; }
       const tsVal = $("#eTs", bg).value; const ts = tsVal ? new Date(tsVal).getTime() : Date.now();
       const L = readLocation();
       if (!L.ok) { toast("Koordinaterna känns inte igen – rätta dem eller töm fältet."); coordsIn.focus(); return; }
@@ -737,7 +761,7 @@ function openEditor(existing) {
           } else out.push({ id: m.id, kind: m.kind, ref: m.ref, url: m.url || "", type: m.type || "" });
         }
         save.textContent = "Sparar…";
-        const note = { id: n.id, ts: isNaN(ts) ? Date.now() : ts, text, tags: [...selTags].filter(tagById), media: out,
+        const note = { id: n.id, ts: isNaN(ts) ? Date.now() : ts, title: $("#eTitle", bg).value.trim(), mood, text, tags: [...selTags].filter(tagById), media: out,
                        created: n.created || Date.now(), updated: Date.now() };
         if (L.loc) note.location = L.loc;
         await S.saveNote(note);
@@ -769,8 +793,10 @@ function openDetail(id) {
   const bg = openSheet(`
     <div class="sheet-head"><h2>Notering</h2><button class="iconbtn" data-close aria-label="Stäng">${X_ICON}</button></div>
     <div class="sheet-body">
-      <div class="dtime">${esc(fmtDay(n.ts))} · ${fmtTime(n.ts)}</div>
+      ${n.title ? `<div class="dtitle">${esc(n.title)}</div>` : ""}
+      <div class="dtime" ${n.title ? 'style="font-size:15px;font-family:Inter,system-ui,sans-serif"' : ""}>${esc(fmtDay(n.ts))} · ${fmtTime(n.ts)}</div>
       <div class="dsub">${esc(fmtFull(n.ts))}</div>
+      <div class="dmood"><span>${MOODS[moodOf(n)].e}</span>${MOODS[moodOf(n)].label}</div>
       ${n.text ? `<div class="dtext">${esc(n.text)}</div>` : ""}
       ${n.location && locLabel(n.location) ? `<div class="dloc">
         <div class="nm">${PIN}${esc(n.location.address || n.location.name || "Adress saknas")}</div>
@@ -870,7 +896,12 @@ function openTagManager(onChange) {
 
 /* ---------------- backup (local mode) ---------------- */
 const blobToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
-async function exportAll(btn) {
+const safeFileName = (raw, fallback) => {
+  let s = String(raw || "").trim().replace(/\.json$/i, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").replace(/\s+/g, " ").replace(/^[.\s-]+|[.\s]+$/g, "");
+  return (s || fallback).slice(0, 100) + ".json";
+};
+const defaultExportName = () => `faltanteckningar-${new Date().toISOString().slice(0, 10)}`;
+async function exportAll(btn, chosenName) {
   btn.disabled = true; btn.textContent = "Packar…";
   try {
     const out = [];
@@ -883,7 +914,7 @@ async function exportAll(btn) {
       out.push({ ...n, media });
     }
     const json = JSON.stringify({ app: "faltanteckningar", version: 1, exported: new Date().toISOString(), tags, notes: out });
-    const d = new Date(); const name = `faltanteckningar-${d.toISOString().slice(0, 10)}.json`;
+    const name = safeFileName(chosenName, defaultExportName());
     const file = new File([json], name, { type: "application/json" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: "Fältanteckningar – säkerhetskopia" }); toast("Säkerhetskopian är klar."); return; }
@@ -926,6 +957,8 @@ function openBackup() {
       <p style="margin-top:0">Noteringarna sparas bara på den här telefonen. Exportera regelbundet och spara filen i t.ex. iCloud Drive eller Google Drive, så tappar du inget om telefonen byts ut.</p>
       <p class="hint">${notes.length} noteringar · ${notes.reduce((s, n) => s + (n.media || []).length, 0)} bilder/filmer</p>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+        <label class="lbl" for="bName" style="margin:4px 0 0">Filnamn</label>
+        <div style="display:flex;align-items:center;gap:6px"><input class="field" id="bName" maxlength="100" value="${esc(defaultExportName())}" autocomplete="off"><span class="hint" style="margin:0">.json</span></div>
         <button class="btn primary" data-export>Exportera allt</button>
         <button class="btn" data-import>Importera från fil…</button>
       </div>
@@ -933,7 +966,7 @@ function openBackup() {
     </div>`);
   bg.addEventListener("click", e => {
     if (e.target.closest("[data-close]")) return closeSheet(bg);
-    const ex = e.target.closest("[data-export]"); if (ex) return exportAll(ex);
+    const ex = e.target.closest("[data-export]"); if (ex) { const v = $("#bName", bg).value.trim(); return exportAll(ex, v); }
     if (e.target.closest("[data-import]")) { closeSheet(bg); $("#inImport").click(); }
   });
 }
